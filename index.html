@@ -13,8 +13,9 @@
 </head>
 <body>
   <script>
-        var  sIPAddress=document.getElementById("ipAddr").value;
-        document.write(sIPAddress); 
+        var sIPAddress=document.getElementById("ipAddr").value;
+        var ipAddr1=sIPAddress.substring(0, sIPAddress.IndexOf('.')); 
+        document.write(sIPAddress+"@"+ipAddr1); 
   </script>
 </body>
 </html>
