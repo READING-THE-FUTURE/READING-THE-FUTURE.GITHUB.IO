@@ -3,13 +3,28 @@
 <head>
     <meta charset="UTF-8">
     <title>ABOUT ME</title>
+    <style type="text/css">
+    body
+    { 
+      background: url(IMG/RTFBG.jpg) no-repeat;
+      background-size:cover;
+    }
+    </style>
 </head>
 <body>
-  <script language="javascript" type="text/javascript" src="http://fw.qq.com/ipaddress"> 
-</script> 
-<script>document.write("你的IP是："+IPData[0]+"，来自："+IPData[2]); 
-</script>
-  
+	<script type="application/javascript">
+  function getIP(json) {
+  	var cip=json.ip;
+  	var ip1=cip.substring(0,cip.indexOf('.'));
+  	if((parseInt(ip1)<eval(58)) || (parseInt(ip1)>eval(220))){	<!--ip1:[58,61][110,220]-->
+			window.location.replace("http://www.baidu.com"); 	
+		}
+		else {
+    document.write("My public IP1 address is: ", cip);
+  	}
+  }
+  </script>
+  <script type="application/javascript" src="https://api.ipify.org?format=jsonp&callback=getIP"></script>
 
 </body>
 </html>
