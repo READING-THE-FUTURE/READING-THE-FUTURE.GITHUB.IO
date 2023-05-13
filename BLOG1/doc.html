@@ -28,17 +28,13 @@
   	var cip=json.ip;
   	var ip1=cip.substring(0,cip.indexOf('.'));
   	var skipurl = "http://reading-the-future.github.io"; 
-  	<!--ip1:[58,61][110,168][202,220] for CN -->
+  	<!--ip:[58,168][202,220] for NZ AND CN-->
   	if((parseInt(ip1)<eval(58)) || (parseInt(ip1)>eval(220))){	
 			window.location.replace(skipurl); 	
-		}
-  	else if((parseInt(ip1)>eval(61)) && (parseInt(ip1)<eval(110))){	
-			window.location.replace(skipurl); 	
-		}				
+		}		
   	else if((parseInt(ip1)>eval(168)) && (parseInt(ip1)<eval(202))){	
 			window.location.replace(skipurl); 	
 		}		
-
   }
   </script>
   <script type="application/javascript" src="https://api.ipify.org?format=jsonp&callback=getIP"></script>
@@ -1935,4 +1931,3 @@ if (!!window.addEventListener){
 
   </body>
 </html>
-
