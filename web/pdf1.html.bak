@@ -7,7 +7,7 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <title>PDF.js viewer</title>
     <script type="text/javascript">
-        var cgl_pdf_src = 'WHBNZ.pdf';
+        var cgl_pdf_src = 'WHBNZ.PDF';
     </script>
     <link rel="stylesheet" href="viewer.css">
     <link rel="resource" type="application/l10n" href="locale/locale.properties">
