@@ -42,9 +42,19 @@ button{margin-right:5px;}
 </div>
 
 <div id="term"></div>
-
+	
+<div>
+  Visitors: <span id="counter">0</span>
+</div>
+	
 <script>
-
+	
+fetch('https://api.countapi.xyz/hit/mygithubio/home')
+.then(r=>r.json())
+.then(r=>{
+    document.getElementById('counter').innerText=r.value;
+});
+	
 const COLS=80, ROWS=25;
 
 let port=null, writer=null, reader=null;
