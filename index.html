@@ -1,17 +1,315 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <title>ABOUT</title>
-    <style type="text/css">
-    body
-    { 
-      background: url(IMG/RTFBG.jpg) no-repeat;
-      background-size:cover;
-    }
-    </style>
+<meta charset="utf-8">
+<title>VT100 Serial Terminal V2</title>
+<style>
+body{
+    background:#111;
+    color:#0f0;
+    font-family:Consolas,monospace;
+    margin:10px;
+}
+#bar{margin-bottom:8px;}
+button{margin-right:5px;}
+#status{margin-left:10px;}
+#term{
+    background:#000;
+    color:#0f0;
+    border:1px solid #0f0;
+    padding:8px;
+    width:80ch;
+    height:25em;
+    overflow:hidden;
+    white-space:pre;
+    font-size:16px;
+    line-height:1;
+}
+</style>
 </head>
+
 <body>
+
+<div id="bar">
+<button id="connectBtn" type="button">Connect</button>
+<button id="reconnectBtn" type="button">Reconnect</button>
+<button id="disconnectBtn" type="button">Disconnect</button>
+<button id="sendFileBtn" type="button">Send File</button>
+<button id="recvFileBtn" type="button">Receive File</button>
+<button id="pasteBtn" type="button">Paste</button>
+<button id="stopBtn" type="button">STOP</button>
+<span id="status">Disconnected</span>
+</div>
+
+<div id="term"></div>
+
+<script>
+
+const COLS=80, ROWS=25;
+
+let port=null, writer=null, reader=null;
+
+let cx=0, cy=0;
+let screen=[], attr=[];
+
+let esc=false, escbuf="";
+let inverse=false;
+
+let mode="normal";
+let sendAbort=false;
+
+let capWriter=null;
+
+const term=document.getElementById("term");
+const status=document.getElementById("status");
+
+function init(){
+    screen=[]; attr=[];
+    for(let y=0;y<ROWS;y++){
+        screen.push(Array(COLS).fill(' '));
+        attr.push(Array(COLS).fill(0));
+    }
+}
+
+function scroll(){
+    screen.shift();
+    attr.shift();
+    screen.push(Array(COLS).fill(' '));
+    attr.push(Array(COLS).fill(0));
+}
+
+function clamp(){
+    while(cy>=ROWS){
+        scroll();
+        cy--;
+    }
+}
+
+function cls(){
+    for(let y=0;y<ROWS;y++){
+        screen[y].fill(' ');
+        attr[y].fill(0);
+    }
+    cx=cy=0;
+}
+
+function put(c){
+    if(c=='\r'){cx=0;return;}
+    if(c=='\n'){cx=0;cy++;clamp();return;}
+    if(c=='\b'){if(cx>0)cx--;return;}
+    if(c=='\t'){cx=(cx+8)&~7;if(cx>=COLS){cx=0;cy++;clamp();}return;}
+
+    screen[cy][cx]=c;
+    attr[cy][cx]=inverse?1:0;
+
+    cx++;
+    if(cx>=COLS){cx=0;cy++;}
+    clamp();
+}
+
+function escH(s){
+    if(s=="[2J"){cls();return;}
+    if(s=="[H"){cx=cy=0;return;}
+    if(s=="[K"){for(let i=cx;i<COLS;i++)screen[cy][i]=' ';return;}
+    if(s=="[0J"){for(let y=cy;y<ROWS;y++)screen[y].fill(' ');return;}
+    if(s=="[7m"){inverse=true;return;}
+    if(s=="[0m"){inverse=false;return;}
+
+    let m;
+    m=s.match(/\[(\d+);(\d+)H/);
+    if(m){cy=Math.min(ROWS-1,+m[1]-1);cx=Math.min(COLS-1,+m[2]-1);return;}
+    m=s.match(/\[(\d+)A/); if(m){cy=Math.max(0,cy-m[1]);return;}
+    m=s.match(/\[(\d+)B/); if(m){cy=Math.min(ROWS-1,cy+ +m[1]);return;}
+    m=s.match(/\[(\d+)C/); if(m){cx=Math.min(COLS-1,cx+ +m[1]);return;}
+    m=s.match(/\[(\d+)D/); if(m){cx=Math.max(0,cx-m[1]);return;}
+}
+
+function rx(b){
+    if(mode=="recv" && capWriter)
+        capWriter.write(new Uint8Array([b]));
+
+    if(esc){
+        escbuf+=String.fromCharCode(b);
+        if(/[A-Za-z]/.test(String.fromCharCode(b))){
+            escH(escbuf);
+            esc=false;escbuf="";
+        }
+        return;
+    }
+
+    if(b==27){esc=true;escbuf="";return;}
+    put(String.fromCharCode(b));
+}
+
+function draw(){
+    let out="";
+    for(let y=0;y<ROWS;y++){
+        for(let x=0;x<COLS;x++){
+            let c=screen[y][x];
+            let inv=attr[y][x];
+
+            if(x===cx && y===cy){
+                c="_";
+                inv=1;
+            }
+
+            if(c==' ') c="&nbsp;";
+
+            if(inv)
+                out+=`<span style="background:#0f0;color:#000">${c}</span>`;
+            else
+                out+=c;
+        }
+        if(y<ROWS-1) out+="<br>";
+    }
+    term.innerHTML=out;
+}
+
+async function readLoop(){
+    try{
+        reader=port.readable.getReader();
+        while(true){
+            const {value,done}=await reader.read();
+            if(done) break;
+            for(let b of value) rx(b);
+            draw();
+            if(sendAbort){ 
+    		if(capWriter){
+        		await capWriter.close();
+        		capWriter=null;
+    		}
+		break;
+	    }
+        }
+    }catch(e){
+        await portLost();
+    }finally{
+        try{reader.releaseLock();}catch(e){}
+        reader=null;
+    }
+}
+
+async function portLost(){
+    mode="normal";
+
+    if(capWriter){
+        await capWriter.close();
+        capWriter=null;
+    }
+
+    try{await reader?.cancel();}catch(e){}
+    try{writer?.releaseLock();}catch(e){}
+    try{await port?.close();}catch(e){}
+    reader=writer=port=null;
+    status.textContent="Disconnected";
+}
+
+async function openPort(p){
+    port=p;
+    await port.open({baudRate:115200,dataBits:8,stopBits:1,parity:"none"});
+    writer=port.writable.getWriter();
+    status.textContent="Connected";
+    readLoop();
+}
+
+connectBtn.onclick=async()=>{
+    let p=await navigator.serial.requestPort();
+    await openPort(p);
+    document.activeElement?.blur();
+};
+
+reconnectBtn.onclick=async()=>{
+    let ps=await navigator.serial.getPorts();
+    if(!ps.length) return alert("No port");
+    await openPort(ps[0]);
+    document.activeElement?.blur();
+};
+
+disconnectBtn.onclick=async()=>{await portLost();};
+
+sendFileBtn.onclick=async()=>{
+    mode="send";
+    sendAbort=false;
+    let inp=document.createElement("input");
+    inp.type="file";
+    inp.onchange=async()=>{
+        let txt=await inp.files[0].text();
+        for(let c of txt){
+            if(sendAbort) break;
+            await writer.write(new Uint8Array([c.charCodeAt(0)]));
+            if(c=='\n'||c=='\r')
+                await new Promise(r=>setTimeout(r,500));
+        }
+        mode="normal";
+    };
+    inp.click();
+    document.activeElement?.blur();
+};
+
+recvFileBtn.onclick=async()=>{
+    capWriter=await (await showSaveFilePicker({suggestedName:"capture.txt"})).createWritable();
+    mode="recv";
+    status.textContent="RECV MODE";
+    document.activeElement?.blur();
+};
+
+pasteBtn.onclick=async()=>{
+    let text=await navigator.clipboard.readText();
+    for(let c of text){
+        if(sendAbort) break;
+        await writer.write(new Uint8Array([c.charCodeAt(0)]));
+        if(c=='\n'||c=='\r')
+            await new Promise(r=>setTimeout(r,100));
+    }
+};
+
+stopBtn.onclick=async()=>{
+    sendAbort=true;
+    mode="normal";
+    status.textContent="STOP";
+    if(capWriter){
+        await capWriter.close();
+        capWriter=null;
+    }
+};
+
+document.addEventListener("keydown",async e=>{
+    if(!writer) return;
+    let ch=null;
+
+    if(e.ctrlKey && !e.shiftKey && (e.key=="c" || e.key=="C")){
+        e.preventDefault();await writer.write(new Uint8Array([0x03]));return;}
+    else if(e.ctrlKey && !e.shiftKey && (e.key=="d" || e.key=="D")){
+        e.preventDefault();await writer.write(new Uint8Array([0x04]));return;}
+    else if(e.ctrlKey && !e.shiftKey && (e.key=="e" || e.key=="E")){
+        e.preventDefault();await writer.write(new Uint8Array([0x05]));return;}
+    else if(e.key=="Escape"){
+        e.preventDefault();await writer.write(new Uint8Array([0x1B]));return;}
+
+    if(e.key.length==1) 			ch=e.key;
+    else if(e.key=="Enter") 			ch="\r";
+    else if(e.key=="Backspace") 		ch="\b";
+    else if(e.key=="Tab"){e.preventDefault();	ch="\t";}
+
+    if(ch)
+        await writer.write(new Uint8Array([ch.charCodeAt(0)]));
+});
+
+
+navigator.serial.addEventListener(
+    "connect",
+    (event)=>{
+
+        status.textContent=
+            "USB ATTACHED";
+    }
+);
+
+init();cls();draw();
+
+navigator.serial?.addEventListener("disconnect",portLost);
+
+</script>
 
 </body>
 </html>
